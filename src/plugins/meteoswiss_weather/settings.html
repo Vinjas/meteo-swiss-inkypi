@@ -1,0 +1,57 @@
+<div class="form-group">
+    <label for="title" class="form-label">Title:</label>
+    <input type="text" id="title" name="title" class="form-input" value="MeteoSwiss">
+</div>
+
+<div class="form-group">
+    <label class="form-label">Location:</label>
+    <div class="form-group">
+        <span>Latitude</span>
+        <input type="text" id="latitude" name="latitude" class="form-input" value="47.384278">
+    </div>
+    <div class="form-group">
+        <span>Longitude</span>
+        <input type="text" id="longitude" name="longitude" class="form-input" value="8.120444">
+    </div>
+    <div class="form-group">
+        <span>Point ID</span>
+        <input type="text" id="pointId" name="pointId" class="form-input" placeholder="auto">
+    </div>
+    <div class="form-group">
+        <span>Point type</span>
+        <input type="text" id="pointTypeId" name="pointTypeId" class="form-input" placeholder="auto">
+    </div>
+</div>
+
+<div class="form-group">
+    <label for="forecastDays" class="form-label">Forecast days:</label>
+    <select id="forecastDays" name="forecastDays" class="form-input">
+        <option value="3">3</option>
+        <option value="5" selected>5</option>
+        <option value="7">7</option>
+    </select>
+</div>
+
+<div class="form-group">
+    <input type="checkbox" id="displayRefreshTime" name="displayRefreshTime" onclick="this.value=this.checked ? 'true' : 'false';" checked value="true">
+    <span>Refresh time</span>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        if (!loadPluginSettings) {
+            return;
+        }
+
+        document.getElementById('title').value = pluginSettings.title || 'MeteoSwiss';
+        document.getElementById('latitude').value = pluginSettings.latitude || '47.384278';
+        document.getElementById('longitude').value = pluginSettings.longitude || '8.120444';
+        document.getElementById('pointId').value = pluginSettings.pointId || '';
+        document.getElementById('pointTypeId').value = pluginSettings.pointTypeId || '';
+        document.getElementById('forecastDays').value = pluginSettings.forecastDays || '5';
+
+        const refresh = pluginSettings.displayRefreshTime || 'true';
+        document.getElementById('displayRefreshTime').checked = refresh === 'true';
+        document.getElementById('displayRefreshTime').value = refresh;
+    });
+</script>

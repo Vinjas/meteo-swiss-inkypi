@@ -1,0 +1,5 @@
+{
+  "display_name": "MeteoSwiss Weather",
+  "id": "meteoswiss_weather",
+  "class": "MeteoSwissWeather"
+}

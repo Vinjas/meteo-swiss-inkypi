@@ -1,0 +1,26 @@
+<div class="form-group">
+    <label for="title" class="form-label">Title:</label>
+    <input type="text" id="title" name="title" class="form-input" value="InkyPi debug plugin">
+</div>
+
+<div class="form-group">
+    <label for="accentColor" class="form-label">Accent:</label>
+    <input type="color" id="accentColor" name="accentColor" class="color-picker" value="#1f7a8c">
+</div>
+
+<div class="form-group">
+    <label for="backgroundColor" class="form-label">Background:</label>
+    <input type="color" id="backgroundColor" name="backgroundColor" class="color-picker" value="#f7f3e8">
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        if (!loadPluginSettings) {
+            return;
+        }
+
+        document.getElementById('title').value = pluginSettings.title || 'InkyPi debug plugin';
+        document.getElementById('accentColor').value = pluginSettings.accentColor || '#1f7a8c';
+        document.getElementById('backgroundColor').value = pluginSettings.backgroundColor || '#f7f3e8';
+    });
+</script>

@@ -165,6 +165,8 @@ cython_debug/
 
 # Development artifacts
 mock_display_output/
+scripts/output/
+src/plugins/meteoswiss_weather/cache/
 
 # IDE files
 .idea
