@@ -220,11 +220,11 @@ class MeteoSwissWeather(BasePlugin):
             logger.warning("MeteoSwiss parameter %s not available in %s", parameter, item.get("item_id"))
             return []
 
-        path = self.download_file(asset["href"], f"{item['item_id']}_{parameter}.csv")
+        path = self.download_file(asset["href"], Path(asset["href"]).name)
         return self.cached_filtered_parameter(path, item["item_id"], parameter, point_id, point_type_id, tz)
 
     def cached_filtered_parameter(self, csv_path, item_id, parameter, point_id, point_type_id, tz):
-        filtered_path = self.cache_dir() / f"{item_id}_{parameter}_{point_type_id}_{point_id}.json"
+        filtered_path = self.cache_dir() / f"{csv_path.stem}_{point_type_id}_{point_id}.json"
         if filtered_path.exists() and filtered_path.stat().st_mtime >= csv_path.stat().st_mtime:
             with filtered_path.open(encoding="utf-8") as file:
                 cached_rows = json.load(file)
@@ -244,10 +244,20 @@ class MeteoSwissWeather(BasePlugin):
     @staticmethod
     def find_parameter_asset(item, parameter):
         suffix = f".{parameter}.csv"
-        for name, asset in item.get("assets", {}).items():
-            if name.endswith(suffix):
-                return asset
-        return None
+        matching_assets = [
+            (name, asset)
+            for name, asset in item.get("assets", {}).items()
+            if name.endswith(suffix)
+        ]
+        if not matching_assets:
+            return None
+        return max(
+            matching_assets,
+            key=lambda entry: (
+                entry[1].get("updated") or entry[1].get("created") or "",
+                entry[0],
+            ),
+        )[1]
 
     def download_collection_asset(self, asset_name):
         cached_path = self.cache_dir() / asset_name
@@ -495,20 +505,20 @@ class MeteoSwissWeather(BasePlugin):
         current_width = int(width * 0.25)
 
         current_box = (margin, content_top, margin + current_width, chart_bottom)
-        strip_box = (margin + current_width + gap, content_top, width - margin, content_top + int(height * 0.135))
+        strip_box = (margin + current_width + gap, content_top, width - margin, content_top + int(height * 0.145))
         chart_box = (margin + current_width + gap, strip_box[3] + gap, width - margin, chart_bottom)
         forecast_box = (margin, chart_bottom + gap, width - margin, height - margin * 2)
 
         if width < height:
             current_box = (margin, content_top, width - margin, content_top + int(height * 0.28))
-            strip_box = (margin, current_box[3] + gap, width - margin, current_box[3] + gap + int(height * 0.12))
+            strip_box = (margin, current_box[3] + gap, width - margin, current_box[3] + gap + int(height * 0.13))
             chart_box = (margin, strip_box[3] + gap, width - margin, chart_bottom)
             forecast_box = (margin, chart_bottom + gap, width - margin, height - margin * 2)
 
         self.draw_current_dark(draw, image, weather, current_box, temp_font, metric_font, small_font, ink, muted, panel, accent, rain_blue)
         self.draw_weather_strip(draw, image, weather["hourly"], strip_box, small_font, ink, muted, panel, panel_soft)
         self.draw_metric_tables(draw, weather["hourly"], chart_box, small_font, ink, muted, grid, rain_blue, sun_gold)
-        self.draw_forecast_dark(draw, image, weather["forecast"][1:], forecast_box, metric_font, small_font, ink, muted, panel, accent)
+        self.draw_forecast_dark(draw, image, weather["forecast"][1:], forecast_box, metric_font, small_font, ink, muted, panel, rain_blue)
         return image
 
     def draw_current_dark(self, draw, image, weather, box, temp_font, metric_font, small_font, ink, muted, panel, accent, rain_blue):
@@ -549,20 +559,23 @@ class MeteoSwissWeather(BasePlugin):
 
         left, top, right, bottom = box
         draw.rounded_rectangle(box, radius=8, fill=panel, outline=(55, 73, 89), width=1)
-        sample = hourly[:24:3]
+        sample = self.hourly_samples(hourly)
         if not sample:
             return
 
         cell_width = (right - left) / len(sample)
-        icon_size = int(min((bottom - top) * 0.50, cell_width * 0.46))
+        icon_size = int(min((bottom - top) * 0.48, cell_width * 0.46))
         for index, hour in enumerate(sample):
             cx = left + cell_width * (index + 0.5)
             if self.starts_new_day(sample, index):
                 separator_x = left + cell_width * index
                 draw.line((separator_x, top + 6, separator_x, bottom - 6), fill=(86, 105, 121), width=1)
-            self.paste_icon(image, hour["icon"], (int(cx - icon_size / 2), int(top + (bottom - top) * 0.14)), icon_size)
+            self.paste_icon(image, hour["icon"], (int(cx - icon_size / 2), int(top + (bottom - top) * 0.08)), icon_size)
             time_label = hour["time"].strftime("%H:00")
-            draw.text((cx, bottom - font.size * 0.92), time_label, anchor="mm", fill=muted, font=font)
+            draw.text((cx, bottom - font.size * 1.45), time_label, anchor="mm", fill=muted, font=font)
+            temp = self.format_number(hour.get("temperature"))
+            temp_label = f"{temp} C" if temp != "-" else "-"
+            draw.text((cx, bottom - font.size * 0.52), temp_label, anchor="mm", fill=ink, font=font)
 
     def draw_metric_tables(self, draw, hourly, box, font, ink, muted, grid, rain_blue, sun_gold):
         if not hourly:
@@ -571,7 +584,7 @@ class MeteoSwissWeather(BasePlugin):
         left, top, right, bottom = box
         draw.rounded_rectangle(box, radius=8, fill=(25, 37, 49), outline=(59, 77, 94), width=1)
 
-        samples = hourly[:24:3]
+        samples = self.metric_samples(hourly)
         if not samples:
             return
 
@@ -584,7 +597,7 @@ class MeteoSwissWeather(BasePlugin):
         plot_height = max(plot_bottom - plot_top, 1)
         headers_y = top + header_height * 0.52
 
-        max_sun = 60.0
+        max_sun = 120.0
         max_gust = max([float(h.get("gust") or 0) for h in samples] + [1.0])
         max_rain = max([float(h.get("precip") or 0) for h in samples] + [1.0])
         cell_width = (plot_right - plot_left) / len(samples)
@@ -629,7 +642,7 @@ class MeteoSwissWeather(BasePlugin):
             rain_text = self.format_hourly_metric_value(hour, rain, "precip")
             draw.text((cx, rain_top + band_height * 0.84), rain_text, anchor="mm", fill=muted, font=font)
 
-    def draw_forecast_dark(self, draw, image, forecast, box, body_font, small_font, ink, muted, panel, accent):
+    def draw_forecast_dark(self, draw, image, forecast, box, body_font, small_font, ink, muted, panel, rain_blue):
         if not forecast:
             return
         left, top, right, bottom = box
@@ -645,6 +658,7 @@ class MeteoSwissWeather(BasePlugin):
             x2 = x1 + card_width
             day_font = get_font("Jost", min(body_font.size, max(int(card_width * 0.18), 12)))
             value_font = get_font("Jost", min(small_font.size, max(int(card_width * 0.13), 10)))
+            rain_font = get_font("Jost", min(small_font.size + 1, max(int(card_width * 0.14), 11)), "bold")
             draw.rounded_rectangle((x1, top, x2, bottom), radius=8, fill=panel, outline=(55, 73, 89), width=1)
             draw.text(((x1 + x2) / 2, top + 8), day["day"], anchor="mt", fill=ink, font=day_font)
             icon_size = int((bottom - top) * 0.34)
@@ -653,7 +667,7 @@ class MeteoSwissWeather(BasePlugin):
             low = self.format_number(day["low"])
             rain = self.format_number(day["precip"], decimals=1)
             draw.text(((x1 + x2) / 2, bottom - value_font.size * 2.4), f"{high}/{low} C", anchor="mm", fill=ink, font=value_font)
-            draw.text(((x1 + x2) / 2, bottom - value_font.size * 1.0), f"{rain} mm", anchor="mm", fill=accent, font=value_font)
+            draw.text(((x1 + x2) / 2, bottom - rain_font.size * 0.95), f"{rain} mm", anchor="mm", fill=rain_blue, font=rain_font)
 
     @staticmethod
     def paste_icon(image, path, position, size):
@@ -685,6 +699,28 @@ class MeteoSwissWeather(BasePlugin):
                 return precip_range
             return f"{value:.1f} mm"
         return str(int(round(value)))
+
+    @staticmethod
+    def hourly_samples(hourly):
+        return hourly[:16:2]
+
+    @staticmethod
+    def metric_samples(hourly):
+        samples = []
+        for index in range(0, min(len(hourly), 16), 2):
+            window = hourly[index : index + 2]
+            if not window:
+                continue
+            sample = dict(window[0])
+            sample["sunshine"] = sum(float(hour.get("sunshine") or 0) for hour in window)
+            sample["gust"] = max(float(hour.get("gust") or 0) for hour in window)
+            sample["precip"] = sum(float(hour.get("precip") or 0) for hour in window)
+            if any(hour.get("precip_low") is not None for hour in window):
+                sample["precip_low"] = sum(float(hour.get("precip_low") or 0) for hour in window)
+            if any(hour.get("precip_high") is not None for hour in window):
+                sample["precip_high"] = sum(float(hour.get("precip_high") or 0) for hour in window)
+            samples.append(sample)
+        return samples
 
     @staticmethod
     def format_precip_range(low, high):
