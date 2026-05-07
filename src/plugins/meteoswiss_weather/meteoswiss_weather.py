@@ -102,7 +102,7 @@ class MeteoSwissWeather(BasePlugin):
         current_wind_dir = self.current_value(rows["wind_direction_hourly"], now, default=None)
 
         hourly = self.merge_hourly(rows, now)
-        forecast = self.merge_daily(rows, now.date(), int(settings.get("forecastDays") or 6))
+        forecast = self.merge_daily(rows, now.date(), int(settings.get("forecastDays") or 7))
 
         return {
             "title": self.format_spanish_date(now),
@@ -119,6 +119,8 @@ class MeteoSwissWeather(BasePlugin):
             "current_wind_dir": current_wind_dir,
             "current_high": forecast[0].get("high") if forecast else None,
             "current_low": forecast[0].get("low") if forecast else None,
+            "current_precip_low": forecast[0].get("precip_low") if forecast else None,
+            "current_precip_high": forecast[0].get("precip_high") if forecast else None,
             "hourly": hourly,
             "forecast": forecast,
         }
@@ -537,15 +539,16 @@ class MeteoSwissWeather(BasePlugin):
 
         metrics_x = left + width * 0.10
         metrics_y = top + height * 0.66
-        rain = self.format_number(weather["current_precip"], decimals=1)
         gust = self.format_number(weather["current_gust"], decimals=0)
         pop = self.format_number(weather["current_pop"], decimals=0)
         high = self.format_number(weather.get("current_high"), decimals=0)
         low = self.format_number(weather.get("current_low"), decimals=0)
+        rain_range = self.format_precip_range(weather.get("current_precip_low"), weather.get("current_precip_high"))
+        rain = rain_range or f"{self.format_number(weather['current_precip'], decimals=1)} mm"
 
-        draw.text((metrics_x, metrics_y), f"Lluvia {rain} mm", anchor="la", fill=rain_blue, font=metric_font)
+        draw.text((metrics_x, metrics_y), f"Lluvia {rain}", anchor="la", fill=rain_blue, font=metric_font)
         line_gap = metric_font.size * 1.35
-        temp_range = f"Max/min {high}/{low} C" if high != "-" and low != "-" else "Max/min -"
+        temp_range = f"{high}/{low} C" if high != "-" and low != "-" else "-"
         draw.text((metrics_x, metrics_y + line_gap), temp_range, anchor="la", fill=ink, font=small_font)
         if gust != "-":
             draw.text((metrics_x, metrics_y + line_gap * 1.85), f"Racha {gust} km/h", anchor="la", fill=muted, font=small_font)
@@ -600,7 +603,7 @@ class MeteoSwissWeather(BasePlugin):
         icon_row_h = max(int(height * 0.14), font.size * 2.8)
         chart_top = top + pad + icon_row_h + font.size * 0.65
         plot_bottom = bottom - pad
-        gap = max(int(height * 0.025), 4)
+        gap = 0
         chart_height = max(plot_bottom - chart_top - gap * 2, 1)
         band_h = chart_height / 3
         precip_top = chart_top
@@ -639,15 +642,22 @@ class MeteoSwissWeather(BasePlugin):
         temp_points = []
         temp_axis_values = [min_temp, (min_temp + max_temp) / 2, max_temp]
         temp_plot_top = precip_top + band_h * 0.12
-        temp_base = precip_top + band_h * 0.88
+        temp_base = precip_top + band_h * 0.82
+        rain_base = precip_top + band_h
         self.draw_horizontal_grid(draw, plot_left, plot_right, temp_plot_top, temp_base, temp_axis_values)
         self.draw_y_axis(draw, plot_left, temp_plot_top, temp_base, temp_axis_values, font, muted, side="left", color=muted, suffix="")
-        self.draw_y_axis(draw, plot_right, temp_plot_top, temp_base, [0, max_rain_axis / 2, max_rain_axis], font, muted, side="right", color=rain_blue, suffix="")
+        rain_axis_top = precip_top + font.size * 0.35
+        rain_axis_bottom = rain_base - font.size * 0.35
+        self.draw_y_axis(draw, plot_right, rain_axis_top, rain_axis_bottom, [0, max_rain_axis / 2, max_rain_axis], font, muted, side="right", color=rain_blue, suffix="")
         for index, hour in enumerate(samples):
             cx = plot_left + cell_width * (index + 0.5)
             rain = float(hour.get("precip") or 0)
-            rain_top = rain_base - band_h * 0.58 * rain / max_rain_axis
-            draw.rectangle((cx - bar_width / 2, rain_top, cx + bar_width / 2, rain_base), fill=rain_blue)
+            if rain > 0:
+                rain_top = rain_base - band_h * 0.78 * rain / max_rain_axis
+                draw.rectangle((cx - bar_width / 2, rain_top, cx + bar_width / 2, rain_base), fill=rain_blue)
+            else:
+                zero_y = rain_base - 2
+                draw.line((cx - bar_width / 2, zero_y, cx + bar_width / 2, zero_y), fill=(96, 174, 238), width=1)
 
             temp = hour.get("temperature")
             if temp is not None:
@@ -825,8 +835,8 @@ class MeteoSwissWeather(BasePlugin):
             return
         left, top, right, bottom = box
         gap = 6
-        day_count = min(len(forecast), 6)
-        while day_count > 3 and (right - left - gap * (day_count - 1)) / day_count < 74:
+        day_count = min(len(forecast), 7)
+        while day_count > 3 and (right - left - gap * (day_count - 1)) / day_count < 64:
             day_count -= 1
 
         days = forecast[:day_count]
@@ -835,7 +845,7 @@ class MeteoSwissWeather(BasePlugin):
             x1 = left + index * (card_width + gap)
             x2 = x1 + card_width
             day_font = get_font("Jost", min(body_font.size, max(int(card_width * 0.18), 12)))
-            value_font = get_font("Jost", min(small_font.size, max(int(card_width * 0.13), 10)))
+            value_font = get_font("Jost", min(small_font.size, max(int(card_width * 0.13), 10)), "bold")
             rain_font = get_font("Jost", min(small_font.size + 1, max(int(card_width * 0.14), 11)), "bold")
             draw.rounded_rectangle((x1, top, x2, bottom), radius=8, fill=panel, outline=(55, 73, 89), width=1)
             draw.text(((x1 + x2) / 2, top + 8), day["day"], anchor="mt", fill=ink, font=day_font)
