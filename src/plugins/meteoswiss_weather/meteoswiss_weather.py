@@ -102,7 +102,7 @@ class MeteoSwissWeather(BasePlugin):
         current_wind_dir = self.current_value(rows["wind_direction_hourly"], now, default=None)
 
         hourly = self.merge_hourly(rows, now)
-        forecast = self.merge_daily(rows, now.date(), int(settings.get("forecastDays") or 5))
+        forecast = self.merge_daily(rows, now.date(), int(settings.get("forecastDays") or 6))
 
         return {
             "title": self.format_spanish_date(now),
@@ -117,6 +117,8 @@ class MeteoSwissWeather(BasePlugin):
             "current_wind": current_wind,
             "current_gust": current_gust,
             "current_wind_dir": current_wind_dir,
+            "current_high": forecast[0].get("high") if forecast else None,
+            "current_low": forecast[0].get("low") if forecast else None,
             "hourly": hourly,
             "forecast": forecast,
         }
@@ -357,7 +359,7 @@ class MeteoSwissWeather(BasePlugin):
 
         hourly = []
         for time in sorted(temp_by_time):
-            if time < now - timedelta(hours=1):
+            if time < now:
                 continue
             hourly.append(
                 {
@@ -505,19 +507,16 @@ class MeteoSwissWeather(BasePlugin):
         current_width = int(width * 0.25)
 
         current_box = (margin, content_top, margin + current_width, chart_bottom)
-        strip_box = (margin + current_width + gap, content_top, width - margin, content_top + int(height * 0.145))
-        chart_box = (margin + current_width + gap, strip_box[3] + gap, width - margin, chart_bottom)
+        chart_box = (margin + current_width + gap, content_top, width - margin, chart_bottom)
         forecast_box = (margin, chart_bottom + gap, width - margin, height - margin * 2)
 
         if width < height:
             current_box = (margin, content_top, width - margin, content_top + int(height * 0.28))
-            strip_box = (margin, current_box[3] + gap, width - margin, current_box[3] + gap + int(height * 0.13))
-            chart_box = (margin, strip_box[3] + gap, width - margin, chart_bottom)
+            chart_box = (margin, current_box[3] + gap, width - margin, chart_bottom)
             forecast_box = (margin, chart_bottom + gap, width - margin, height - margin * 2)
 
         self.draw_current_dark(draw, image, weather, current_box, temp_font, metric_font, small_font, ink, muted, panel, accent, rain_blue)
-        self.draw_weather_strip(draw, image, weather["hourly"], strip_box, small_font, ink, muted, panel, panel_soft)
-        self.draw_metric_tables(draw, weather["hourly"], chart_box, small_font, ink, muted, grid, rain_blue, sun_gold)
+        self.draw_forecast_charts(draw, image, weather["hourly"], chart_box, small_font, ink, muted, grid, rain_blue, sun_gold)
         self.draw_forecast_dark(draw, image, weather["forecast"][1:], forecast_box, metric_font, small_font, ink, muted, panel, rain_blue)
         return image
 
@@ -539,15 +538,15 @@ class MeteoSwissWeather(BasePlugin):
         metrics_x = left + width * 0.10
         metrics_y = top + height * 0.66
         rain = self.format_number(weather["current_precip"], decimals=1)
-        wind = self.format_number(weather["current_wind"], decimals=0)
         gust = self.format_number(weather["current_gust"], decimals=0)
         pop = self.format_number(weather["current_pop"], decimals=0)
-        wind_arrow = self.wind_arrow(weather["current_wind_dir"])
+        high = self.format_number(weather.get("current_high"), decimals=0)
+        low = self.format_number(weather.get("current_low"), decimals=0)
 
         draw.text((metrics_x, metrics_y), f"Lluvia {rain} mm", anchor="la", fill=rain_blue, font=metric_font)
-        wind_text = f"Viento {wind} km/h {wind_arrow}" if wind != "-" else "Viento -"
         line_gap = metric_font.size * 1.35
-        draw.text((metrics_x, metrics_y + line_gap), wind_text, anchor="la", fill=ink, font=small_font)
+        temp_range = f"Max/min {high}/{low} C" if high != "-" and low != "-" else "Max/min -"
+        draw.text((metrics_x, metrics_y + line_gap), temp_range, anchor="la", fill=ink, font=small_font)
         if gust != "-":
             draw.text((metrics_x, metrics_y + line_gap * 1.85), f"Racha {gust} km/h", anchor="la", fill=muted, font=small_font)
         if pop != "-":
@@ -576,6 +575,185 @@ class MeteoSwissWeather(BasePlugin):
             temp = self.format_number(hour.get("temperature"))
             temp_label = f"{temp} C" if temp != "-" else "-"
             draw.text((cx, bottom - font.size * 0.52), temp_label, anchor="mm", fill=ink, font=font)
+
+    def draw_forecast_charts(self, draw, image, hourly, box, font, ink, muted, grid, rain_blue, sun_gold):
+        if not hourly:
+            return
+
+        samples = hourly[:16]
+        if not samples:
+            return
+
+        left, top, right, bottom = box
+        draw.rounded_rectangle(box, radius=8, fill=(25, 37, 49), outline=(59, 77, 94), width=1)
+
+        width = right - left
+        height = bottom - top
+        pad = max(int(min(width, height) * 0.025), 6)
+        label_width = max(int(width * 0.075), 34)
+        right_axis_width = max(int(width * 0.045), 20)
+        plot_left = left + label_width
+        plot_right = right - pad - right_axis_width
+        plot_width = max(plot_right - plot_left, 1)
+        cell_width = plot_width / len(samples)
+
+        icon_row_h = max(int(height * 0.14), font.size * 2.8)
+        chart_top = top + pad + icon_row_h + font.size * 0.65
+        plot_bottom = bottom - pad
+        gap = max(int(height * 0.025), 4)
+        chart_height = max(plot_bottom - chart_top - gap * 2, 1)
+        band_h = chart_height / 3
+        precip_top = chart_top
+        sun_top = precip_top + band_h + gap
+        wind_top = sun_top + band_h + gap
+
+        icon_samples = samples[::2]
+        icon_cell_width = plot_width / max(len(icon_samples), 1)
+        icon_size = int(min(icon_row_h * 0.58, icon_cell_width * 0.48))
+        for index, hour in enumerate(icon_samples):
+            sample_index = index * 2
+            cx = plot_left + cell_width * (sample_index + 0.5)
+            self.paste_icon(image, hour["icon"], (int(cx - icon_size / 2), int(top + pad)), icon_size)
+            pop = self.format_number(hour.get("pop"), decimals=0)
+            pop_text = f"{pop}%" if pop != "-" else "-"
+            draw.text((cx, top + pad + icon_size + font.size * 0.65), pop_text, anchor="mm", fill=rain_blue, font=font)
+
+        for band_top in (precip_top, sun_top, wind_top):
+            draw.line((left + pad, band_top, right - pad, band_top), fill=grid, width=1)
+
+        self.draw_time_axis(draw, samples, plot_left, plot_right, chart_top - font.size * 0.6, font, muted)
+        self.draw_time_grid(draw, samples, plot_left, cell_width, precip_top, precip_top + band_h, grid)
+        self.draw_time_grid(draw, samples, plot_left, cell_width, sun_top, sun_top + band_h, grid)
+        self.draw_time_grid(draw, samples, plot_left, cell_width, wind_top, wind_top + band_h, grid)
+
+        temps = [float(hour.get("temperature") or 0) for hour in samples if hour.get("temperature") is not None]
+        min_temp = math.floor(min(temps) - 1) if temps else 0
+        max_temp = math.ceil(max(temps) + 1) if temps else 1
+        if max_temp <= min_temp:
+            max_temp = min_temp + 1
+
+        max_rain = max([float(hour.get("precip") or 0) for hour in samples] + [0.5])
+        max_rain_axis = max(1.0, math.ceil(max_rain))
+        rain_base = precip_top + band_h
+        bar_width = max(int(cell_width * 0.58), 3)
+        temp_points = []
+        temp_axis_values = [min_temp, (min_temp + max_temp) / 2, max_temp]
+        temp_plot_top = precip_top + band_h * 0.12
+        temp_base = precip_top + band_h * 0.88
+        self.draw_horizontal_grid(draw, plot_left, plot_right, temp_plot_top, temp_base, temp_axis_values)
+        self.draw_y_axis(draw, plot_left, temp_plot_top, temp_base, temp_axis_values, font, muted, side="left", color=muted, suffix="")
+        self.draw_y_axis(draw, plot_right, temp_plot_top, temp_base, [0, max_rain_axis / 2, max_rain_axis], font, muted, side="right", color=rain_blue, suffix="")
+        for index, hour in enumerate(samples):
+            cx = plot_left + cell_width * (index + 0.5)
+            rain = float(hour.get("precip") or 0)
+            rain_top = rain_base - band_h * 0.58 * rain / max_rain_axis
+            draw.rectangle((cx - bar_width / 2, rain_top, cx + bar_width / 2, rain_base), fill=rain_blue)
+
+            temp = hour.get("temperature")
+            if temp is not None:
+                ty = temp_base - (temp_base - temp_plot_top) * (float(temp) - min_temp) / (max_temp - min_temp)
+                temp_points.append((cx, ty))
+
+        if len(temp_points) > 1:
+            draw.line(temp_points, fill=(255, 86, 94), width=max(3, int(font.size * 0.28)))
+        draw.text((plot_right, precip_top + band_h - font.size * 0.25), "mm/h", anchor="rb", fill=rain_blue, font=font)
+
+        max_sun = 60.0
+        sun_base = sun_top + band_h
+        self.draw_horizontal_grid(draw, plot_left, plot_right, sun_top, sun_top + band_h, [0, 30, 60])
+        for index, hour in enumerate(samples):
+            cx = plot_left + cell_width * (index + 0.5)
+            sun = min(float(hour.get("sunshine") or 0), max_sun)
+            bar_top = sun_base - band_h * 0.78 * sun / max_sun
+            draw.rectangle((cx - bar_width / 2, bar_top, cx + bar_width / 2, sun_base), fill=(232, 198, 42))
+
+        wind_plot_top = wind_top + band_h * 0.12
+        wind_base = wind_top + band_h * 0.88
+        wind_values = [float(hour.get("wind") or 0) for hour in samples]
+        gust_values = [float(hour.get("gust") or 0) for hour in samples]
+        max_wind = max(gust_values + wind_values + [10.0])
+        max_wind_axis = max(10, int(math.ceil(max_wind / 10.0) * 10))
+        wind_points = []
+        gust_points = []
+        wind_axis_values = [0, max_wind_axis / 2, max_wind_axis]
+        self.draw_horizontal_grid(draw, plot_left, plot_right, wind_plot_top, wind_base, wind_axis_values)
+        self.draw_y_axis(draw, plot_left, wind_plot_top, wind_base, wind_axis_values, font, muted, side="left", color=muted, suffix="")
+
+        for index, hour in enumerate(samples):
+            cx = plot_left + cell_width * (index + 0.5)
+            wind_y = wind_base - (wind_base - wind_plot_top) * float(hour.get("wind") or 0) / max_wind_axis
+            gust_y = wind_base - (wind_base - wind_plot_top) * float(hour.get("gust") or 0) / max_wind_axis
+            wind_points.append((cx, wind_y))
+            gust_points.append((cx, gust_y))
+
+        if len(gust_points) > 1:
+            polygon = [(plot_left + cell_width * 0.5, wind_base)] + gust_points + [(plot_left + cell_width * (len(samples) - 0.5), wind_base)]
+            draw.polygon(polygon, fill=(55, 58, 92))
+            draw.line(gust_points, fill=(150, 139, 255), width=max(2, int(font.size * 0.16)))
+        if len(wind_points) > 1:
+            draw.line(wind_points, fill=(212, 139, 237), width=max(2, int(font.size * 0.14)))
+
+    @staticmethod
+    def draw_time_axis(draw, samples, plot_left, plot_right, y, font, muted):
+        if not samples:
+            return
+        cell_width = (plot_right - plot_left) / len(samples)
+        for index, hour in enumerate(samples):
+            if index % 2 != 0:
+                continue
+            if index >= len(samples) - 1:
+                continue
+            cx = plot_left + cell_width * (index + 0.5)
+            draw.text((cx, y), hour["time"].strftime("%H:00"), anchor="mm", fill=muted, font=font)
+
+    @staticmethod
+    def draw_time_grid(draw, samples, plot_left, cell_width, top, bottom, grid):
+        for index in range(len(samples)):
+            if index % 2 != 0:
+                continue
+            x = plot_left + cell_width * (index + 0.5)
+            draw.line((x, top + 2, x, bottom - 2), fill=(58, 75, 91), width=1)
+
+    @staticmethod
+    def draw_horizontal_grid(draw, left, right, top, bottom, values):
+        if not values:
+            return
+        v_min = min(values)
+        v_max = max(values)
+        if v_max <= v_min:
+            v_max = v_min + 1
+        for value in values:
+            y = bottom - (bottom - top) * (float(value) - v_min) / (v_max - v_min)
+            draw.line((left, y, right, y), fill=(49, 64, 78), width=1)
+
+    @staticmethod
+    def draw_y_axis(draw, axis_x, top, bottom, values, font, muted, side="left", color=None, suffix=""):
+        if not values:
+            return
+        color = color or muted
+        v_min = min(values)
+        v_max = max(values)
+        if v_max <= v_min:
+            v_max = v_min + 1
+        for value in values:
+            y = bottom - (bottom - top) * (float(value) - v_min) / (v_max - v_min)
+            label = str(int(round(value))) if float(value).is_integer() else f"{value:.1f}"
+            if suffix:
+                label = f"{label}{suffix}"
+            if side == "right":
+                draw.line((axis_x, y, axis_x + 3, y), fill=color, width=1)
+                draw.text((axis_x + 5, y), label, anchor="lm", fill=color, font=font)
+            else:
+                draw.line((axis_x - 3, y, axis_x, y), fill=color, width=1)
+                draw.text((axis_x - 5, y), label, anchor="rm", fill=color, font=font)
+
+    @staticmethod
+    def draw_day_separators(draw, samples, plot_left, cell_width, top, bottom, grid):
+        for index in range(1, len(samples)):
+            if samples[index]["time"].date() == samples[index - 1]["time"].date():
+                continue
+            separator_x = plot_left + cell_width * index
+            draw.line((separator_x, top, separator_x, bottom), fill=grid, width=1)
 
     def draw_metric_tables(self, draw, hourly, box, font, ink, muted, grid, rain_blue, sun_gold):
         if not hourly:
@@ -647,8 +825,8 @@ class MeteoSwissWeather(BasePlugin):
             return
         left, top, right, bottom = box
         gap = 6
-        day_count = min(len(forecast), 5)
-        while day_count > 3 and (right - left - gap * (day_count - 1)) / day_count < 82:
+        day_count = min(len(forecast), 6)
+        while day_count > 3 and (right - left - gap * (day_count - 1)) / day_count < 74:
             day_count -= 1
 
         days = forecast[:day_count]

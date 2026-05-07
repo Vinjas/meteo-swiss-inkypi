@@ -27,7 +27,8 @@
     <label for="forecastDays" class="form-label">Forecast days:</label>
     <select id="forecastDays" name="forecastDays" class="form-input">
         <option value="3">3</option>
-        <option value="5" selected>5</option>
+        <option value="5">5</option>
+        <option value="6" selected>6</option>
         <option value="7">7</option>
     </select>
 </div>
@@ -48,7 +49,7 @@
         document.getElementById('longitude').value = pluginSettings.longitude || '8.120444';
         document.getElementById('pointId').value = pluginSettings.pointId || '';
         document.getElementById('pointTypeId').value = pluginSettings.pointTypeId || '';
-        document.getElementById('forecastDays').value = pluginSettings.forecastDays || '5';
+        document.getElementById('forecastDays').value = pluginSettings.forecastDays || '6';
 
         const refresh = pluginSettings.displayRefreshTime || 'true';
         document.getElementById('displayRefreshTime').checked = refresh === 'true';
