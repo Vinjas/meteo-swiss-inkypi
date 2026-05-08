@@ -130,6 +130,7 @@ class MeteoSwissWeather(BasePlugin):
 
     def load_battery_status(self, settings, device_config, now):
         if settings.get("displayBattery", "true") != "true":
+            logger.info("MeteoSwiss battery status disabled by plugin settings.")
             return None
 
         path = (settings.get("batteryStatusPath") or DEFAULT_BATTERY_STATUS_PATH).strip()
@@ -143,6 +144,7 @@ class MeteoSwissWeather(BasePlugin):
                 base_dir = Path(__file__).resolve().parents[2]
             status_path = Path(base_dir) / status_path
         if not status_path.exists():
+            logger.info("MeteoSwiss battery status file not found: %s", status_path)
             return None
 
         try:
@@ -154,6 +156,7 @@ class MeteoSwissWeather(BasePlugin):
 
         vin = self.safe_float(data.get("vin"))
         if vin is None:
+            logger.info("MeteoSwiss battery status file has no readable vin: %s", status_path)
             return None
 
         percent = self.safe_float(data.get("percent"))
@@ -169,12 +172,14 @@ class MeteoSwissWeather(BasePlugin):
             except (TypeError, ValueError):
                 age_minutes = None
 
-        return {
+        status = {
             "vin": vin,
             "percent": max(0, min(100, int(round(percent)))),
             "charging": bool(data.get("charging", False)),
             "age_minutes": age_minutes,
         }
+        logger.info("MeteoSwiss battery status loaded from %s: %.2fV -> %s%%", status_path, vin, status["percent"])
+        return status
 
     def resolve_point(self, point_id, point_type_id, lat, lon):
         if not point_id and not point_type_id and FIXED_METEOSWISS_POINT:
