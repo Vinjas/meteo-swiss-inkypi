@@ -38,6 +38,16 @@
     <span>Refresh time</span>
 </div>
 
+<div class="form-group">
+    <input type="checkbox" id="displayBattery" name="displayBattery" onclick="this.value=this.checked ? 'true' : 'false';" checked value="true">
+    <span>Battery status</span>
+</div>
+
+<div class="form-group">
+    <label for="batteryStatusPath" class="form-label">Battery JSON:</label>
+    <input type="text" id="batteryStatusPath" name="batteryStatusPath" class="form-input" value="config/battery.json">
+</div>
+
 <script>
     document.addEventListener('DOMContentLoaded', () => {
         if (!loadPluginSettings) {
@@ -54,5 +64,10 @@
         const refresh = pluginSettings.displayRefreshTime || 'true';
         document.getElementById('displayRefreshTime').checked = refresh === 'true';
         document.getElementById('displayRefreshTime').value = refresh;
+
+        const battery = pluginSettings.displayBattery || 'true';
+        document.getElementById('displayBattery').checked = battery === 'true';
+        document.getElementById('displayBattery').value = battery;
+        document.getElementById('batteryStatusPath').value = pluginSettings.batteryStatusPath || 'config/battery.json';
     });
 </script>

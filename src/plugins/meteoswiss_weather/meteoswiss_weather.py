@@ -26,6 +26,7 @@ DEFAULT_TIMEZONE = "Europe/Zurich"
 CACHE_TTL_SECONDS = 3 * 60 * 60
 METADATA_TTL_SECONDS = 7 * 24 * 60 * 60
 CACHE_RETENTION_SECONDS = 3 * 24 * 60 * 60  # Delete forecast cache files older than 3 days.
+DEFAULT_BATTERY_STATUS_PATH = "config/battery.json"
 
 # Set this to None to resolve the closest MeteoSwiss point from latitude/longitude instead.
 FIXED_METEOSWISS_POINT = {
@@ -73,14 +74,14 @@ class MeteoSwissWeather(BasePlugin):
             tz = pytz.timezone(DEFAULT_TIMEZONE)
 
         try:
-            weather = self.load_weather(settings, tz)
+            weather = self.load_weather(settings, tz, device_config)
         except Exception as exc:
             logger.exception("MeteoSwiss weather failed: %s", exc)
             raise RuntimeError("MeteoSwiss weather request failure, please check logs.")
 
         return self.render_weather(dimensions, weather, settings, tz)
 
-    def load_weather(self, settings, tz):
+    def load_weather(self, settings, tz, device_config):
         lat = float(settings.get("latitude") or DEFAULT_LATITUDE)
         lon = float(settings.get("longitude") or DEFAULT_LONGITUDE)
         point_id = (settings.get("pointId") or "").strip()
@@ -103,6 +104,7 @@ class MeteoSwissWeather(BasePlugin):
 
         hourly = self.merge_hourly(rows, now)
         forecast = self.merge_daily(rows, now.date(), int(settings.get("forecastDays") or 7))
+        battery = self.load_battery_status(settings, device_config, now)
 
         return {
             "title": self.format_spanish_date(now),
@@ -123,6 +125,55 @@ class MeteoSwissWeather(BasePlugin):
             "current_precip_high": forecast[0].get("precip_high") if forecast else None,
             "hourly": hourly,
             "forecast": forecast,
+            "battery": battery,
+        }
+
+    def load_battery_status(self, settings, device_config, now):
+        if settings.get("displayBattery", "true") != "true":
+            return None
+
+        path = (settings.get("batteryStatusPath") or DEFAULT_BATTERY_STATUS_PATH).strip()
+        if not path:
+            return None
+
+        status_path = Path(path)
+        if not status_path.is_absolute():
+            base_dir = getattr(device_config, "BASE_DIR", None)
+            if not isinstance(base_dir, (str, Path)):
+                base_dir = Path(__file__).resolve().parents[2]
+            status_path = Path(base_dir) / status_path
+        if not status_path.exists():
+            return None
+
+        try:
+            with status_path.open(encoding="utf-8-sig") as file:
+                data = json.load(file)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Failed to read battery status from %s: %s", status_path, exc)
+            return None
+
+        vin = self.safe_float(data.get("vin"))
+        if vin is None:
+            return None
+
+        percent = self.safe_float(data.get("percent"))
+        if percent is None:
+            percent = self.estimate_lipo_percent(vin)
+
+        updated = data.get("updated")
+        age_minutes = None
+        if updated:
+            try:
+                updated_dt = datetime.fromisoformat(str(updated)).astimezone(now.tzinfo)
+                age_minutes = max(int((now - updated_dt).total_seconds() // 60), 0)
+            except (TypeError, ValueError):
+                age_minutes = None
+
+        return {
+            "vin": vin,
+            "percent": max(0, min(100, int(round(percent)))),
+            "charging": bool(data.get("charging", False)),
+            "age_minutes": age_minutes,
         }
 
     def resolve_point(self, point_id, point_type_id, lat, lon):
@@ -494,9 +545,12 @@ class MeteoSwissWeather(BasePlugin):
         draw.text((margin, margin), weather["title"], anchor="lt", fill=ink, font=title_font)
         draw.text((margin, margin + title_font.size * 1.05), weather["location"], anchor="lt", fill=muted, font=date_font)
 
+        self.draw_battery_indicator(draw, weather.get("battery"), (width - margin, margin), small_font, ink, muted)
+
         if settings.get("displayRefreshTime", "true") == "true":
+            status_y = margin + small_font.size * 1.75 if weather.get("battery") else margin
             draw.text(
-                (width - margin, margin),
+                (width - margin, status_y),
                 weather["updated"].strftime("%H:%M"),
                 anchor="rt",
                 fill=muted,
@@ -554,6 +608,40 @@ class MeteoSwissWeather(BasePlugin):
             draw.text((metrics_x, metrics_y + line_gap * 1.85), f"Racha {gust} km/h", anchor="la", fill=muted, font=small_font)
         if pop != "-":
             draw.text((metrics_x, metrics_y + line_gap * 2.7), f"Prob. lluvia {pop}%", anchor="la", fill=muted, font=small_font)
+
+    def draw_battery_indicator(self, draw, battery, anchor, font, ink, muted):
+        if not battery:
+            return
+
+        right, top = anchor
+        percent = battery.get("percent")
+        if percent is None:
+            return
+
+        color = self.battery_color(battery, ink)
+        label = f"{int(percent)}%"
+        label_width = int(font.getlength(label))
+        body_w = max(int(font.size * 1.8), 22)
+        body_h = max(int(font.size * 0.95), 10)
+        nub_w = max(int(body_w * 0.12), 3)
+        gap = max(int(font.size * 0.35), 4)
+        total_w = body_w + nub_w + gap + label_width
+        left = right - total_w
+        y = top + max(int(font.size * 0.12), 1)
+        body = (left, y, left + body_w, y + body_h)
+        nub = (left + body_w, y + body_h * 0.30, left + body_w + nub_w, y + body_h * 0.70)
+
+        draw.rounded_rectangle(body, radius=2, outline=color, width=2)
+        draw.rectangle(nub, fill=color)
+        fill_pad = 3
+        fill_w = max(int((body_w - fill_pad * 2) * max(0, min(100, percent)) / 100), 1)
+        draw.rectangle(
+            (left + fill_pad, y + fill_pad, left + fill_pad + fill_w, y + body_h - fill_pad),
+            fill=color,
+        )
+        if battery.get("charging"):
+            draw.text((left + body_w / 2, y + body_h / 2), "+", anchor="mm", fill=ink, font=font)
+        draw.text((left + body_w + nub_w + gap, y + body_h / 2), label, anchor="lm", fill=color, font=font)
 
     def draw_weather_strip(self, draw, image, hourly, box, font, ink, muted, panel, panel_soft):
         if not hourly:
@@ -920,6 +1008,68 @@ class MeteoSwissWeather(BasePlugin):
         except (TypeError, ValueError):
             return ""
         return f"{low_value}-{high_value} mm"
+
+    @staticmethod
+    def safe_float(value):
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def estimate_lipo_percent(vin):
+        voltage_curve = [
+            (4.20, 100),
+            (4.10, 90),
+            (4.00, 75),
+            (3.90, 58),
+            (3.80, 40),
+            (3.70, 22),
+            (3.60, 10),
+            (3.50, 3),
+            (3.40, 0),
+        ]
+        if vin >= voltage_curve[0][0]:
+            return voltage_curve[0][1]
+        for index in range(1, len(voltage_curve)):
+            high_v, high_pct = voltage_curve[index - 1]
+            low_v, low_pct = voltage_curve[index]
+            if vin >= low_v:
+                span = high_v - low_v
+                if span <= 0:
+                    return low_pct
+                ratio = (vin - low_v) / span
+                return low_pct + ratio * (high_pct - low_pct)
+        return 0
+
+    @staticmethod
+    def format_battery_label(battery, compact=False):
+        if not battery:
+            return ""
+        percent = battery.get("percent")
+        vin = battery.get("vin")
+        if percent is None or vin is None:
+            return ""
+        prefix = "Bat"
+        charging = " +" if battery.get("charging") else ""
+        if compact:
+            return f"{prefix} {int(percent)}%{charging}"
+        return f"{prefix} {int(percent)}% · {vin:.2f}V{charging}"
+
+    @staticmethod
+    def battery_color(battery, default_color):
+        if not battery:
+            return default_color
+        percent = battery.get("percent")
+        if percent is None:
+            return default_color
+        if percent <= 15:
+            return (255, 112, 112)
+        if percent <= 30:
+            return (232, 198, 42)
+        return default_color
 
     @staticmethod
     def starts_new_day(samples, index):
