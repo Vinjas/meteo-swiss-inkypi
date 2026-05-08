@@ -1,0 +1,54 @@
+{
+    "name": "InkyPi Development",
+    "display_type": "inky",
+    "resolution": [
+        800,
+        480
+    ],
+    "orientation": "horizontal",
+    "inverted_image": false,
+    "image_settings": {
+        "inky_saturation": 0.5
+    },
+    "plugin_order": [
+        "meteoswiss_weather",
+        "calendar",
+        "ai_image",
+        "ai_text",
+        "clock",
+        "comic",
+        "countdown",
+        "github",
+        "image_album",
+        "image_folder",
+        "image_upload",
+        "apod",
+        "image_url",
+        "newspaper",
+        "rss",
+        "screenshot",
+        "todo_list",
+        "unsplash",
+        "weather",
+        "wpotd",
+        "year_progress"
+    ],
+    "playlist_config": {
+        "playlists": [
+            {
+                "name": "Default",
+                "start_time": "00:00",
+                "end_time": "24:00",
+                "plugins": [],
+                "current_plugin_index": null
+            }
+        ],
+        "active_playlist": null
+    },
+    "refresh_info": {
+        "refresh_time": "2026-05-08T17:57:04.624734+00:00",
+        "image_hash": "70ee1a1863080c9ca916423f6f9b7930aa65c39e808b5fcf97db142bb7ae045e",
+        "refresh_type": "Manual Update",
+        "plugin_id": "meteoswiss_weather"
+    }
+}
