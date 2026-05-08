@@ -3,7 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-WITTYPI_DIR="${WITTYPI_DIR:-$HOME/wittypi}"
+DEFAULT_HOME="${HOME:-/home/daniel}"
+WITTYPI_DIR="${WITTYPI_DIR:-$DEFAULT_HOME/wittypi}"
 OUTPUT_PATH="${INKYPI_BATTERY_JSON:-$REPO_DIR/src/config/battery.json}"
 
 if [ ! -f "$WITTYPI_DIR/utilities.sh" ]; then
