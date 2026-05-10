@@ -21,7 +21,7 @@ class ImageURL(BasePlugin):
         logger.debug(f"Target dimensions: {dimensions[0]}x{dimensions[1]}")
 
         # Use adaptive image loader for memory-efficient processing
-        image = self.image_loader.from_url(url, dimensions, timeout_ms=40000)
+        image = self.image_loader.from_url(url, dimensions, timeout_ms=180000)
 
         if not image:
             logger.error("Failed to load image from URL")
