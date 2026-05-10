@@ -46,9 +46,9 @@
         "active_playlist": null
     },
     "refresh_info": {
-        "refresh_time": "2026-05-08T19:15:04.959915+00:00",
-        "image_hash": "0cb09516147cd5dcfc0efd3d478ce72e8736e9b8464f1162d508bbd099d29ab8",
+        "refresh_time": "2026-05-10T19:07:57.467777+00:00",
+        "image_hash": "c3bb2e81f08d7e2f5b2618900a525f47584211dbd41cf98baaf30f670029b4fc",
         "refresh_type": "Manual Update",
-        "plugin_id": "meteoswiss_weather"
+        "plugin_id": "image_url"
     }
 }
